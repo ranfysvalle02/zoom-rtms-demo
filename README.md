@@ -1,5 +1,7 @@
 # zoom-rtms-demo
 
+![](zoom-demo.png)
+
 ---
 
 # Zoom Real-Time Media Streams (RTMS) and AI Translation Example
