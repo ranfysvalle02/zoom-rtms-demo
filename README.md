@@ -50,10 +50,10 @@ This repository contains a Node.js application demonstrating how to leverage Zoo
     Rename `.env.example` to `.env` and update the following:
 
     ```
-CLIENT_ID=  
-CLIENT_SECRET=  
-REDIRECT_URI=https://....ngrok-free.app/callback  
-ZOOM_SECRET_TOKEN=
+    CLIENT_ID=  
+    CLIENT_SECRET=  
+    REDIRECT_URI=https://....ngrok-free.app/callback  
+    ZOOM_SECRET_TOKEN=
     ```
 
       * `CLIENT_ID` and `CLIENT_SECRET`: Obtain these from your Zoom App credentials.
