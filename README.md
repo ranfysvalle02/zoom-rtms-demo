@@ -38,8 +38,8 @@ This repository contains a Node.js application demonstrating how to leverage Zoo
 1.  **Clone the repository:**
 
     ```bash
-    git clone <repository-url>
-    cd <repository-directory>
+    git clone git@github.com:ranfysvalle02/zoom-rtms-demo.git
+    cd zoom-rtms-demo
     ```
 
 2.  **Install dependencies:**
