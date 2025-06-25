@@ -613,3 +613,366 @@ app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);    
 });    
 ```
+
+---
+
+-----  
+   
+## Appendix: Integrating MongoDB Storage  
+   
+### Introduction  
+   
+Adding MongoDB to your application enhances its data storage capabilities, especially for handling real-time transcripts and translations. MongoDB's **document-oriented model** aligns perfectly with the structure of transcript data, allowing for flexible, scalable, and efficient storage.  
+   
+### Why MongoDB is a Great Fit  
+   
+- **Document Model Flexibility:** MongoDB stores data in JSON-like documents, making it easy to model complex data structures, such as transcripts with nested user information, timestamps, and translations.  
+    
+- **Scalable and High Performance:** Designed for scalability and high throughput, MongoDB can handle large volumes of data generated during live meetings without compromising on performance.  
+   
+- **Rich Query Language and Aggregations:** MongoDB's powerful query capabilities and aggregation framework enable complex data retrieval and real-time analytics, such as filtering transcripts by user, time ranges, or languages.  
+   
+- **Indexing and Full-Text Search:** Efficient indexing mechanisms and full-text search support allow for quick retrieval and searching of transcripts.  
+   
+- **Ease of Integration:** The MongoDB Node.js driver integrates seamlessly with Express.js applications, making it straightforward to incorporate into your existing codebase.  
+   
+### Setting Up MongoDB  
+   
+#### Prerequisites  
+   
+- **MongoDB Instance:** You can use a local MongoDB installation, a Docker container, or a cloud-based service like MongoDB Atlas.  
+   
+- **MongoDB Node.js Driver:** Ensure the `mongodb` npm package is installed.  
+  
+  ```bash  
+  npm install mongodb  
+  ```  
+   
+#### Configuration  
+   
+1. **Create a `models` Directory:**  
+  
+   Organize your database schemas and models separately.  
+  
+   ```bash  
+   mkdir models  
+   ```  
+   
+2. **Database Connection (`db.js`):**  
+  
+   In the `models` directory, create a file called `db.js` to handle the connection logic.  
+  
+   ```javascript  
+   // models/db.js  
+  
+   const { MongoClient } = require('mongodb');  
+  
+   const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017';  
+   const client = new MongoClient(uri);  
+  
+   let db;  
+  
+   async function connectDB() {  
+     if (db) return db;  
+     try {  
+       await client.connect();  
+       db = client.db('zoom_rtms');  
+       console.log('Connected to MongoDB');  
+       return db;  
+     } catch (error) {  
+       console.error('MongoDB connection error:', error);  
+     }  
+   }  
+  
+   module.exports = { connectDB };  
+   ```  
+   
+3. **Transcript Model (`Transcript.js`):**  
+  
+   Define a model for storing transcripts.  
+  
+   ```javascript  
+   // models/Transcript.js  
+  
+   const { ObjectId } = require('mongodb');  
+  
+   class Transcript {  
+     constructor(db) {  
+       this.collection = db.collection('transcripts');  
+     }  
+  
+     async insert(transcriptData) {  
+       const result = await this.collection.insertOne(transcriptData);  
+       return result.insertedId;  
+     }  
+  
+     async findAll(filters = {}) {  
+       return await this.collection.find(filters).toArray();  
+     }  
+  
+     // Additional methods for aggregations, updates, etc.  
+   }  
+  
+   module.exports = Transcript;  
+   ```  
+   
+4. **Update the Main Application Code:**  
+  
+   Modify your main application file to use MongoDB for storing transcripts.  
+  
+   ```javascript  
+   // Add at the top of your main application file  
+  
+   const { connectDB } = require('./models/db');  
+   const Transcript = require('./models/Transcript');  
+  
+   let transcriptModel;  
+  
+   (async () => {  
+     const db = await connectDB();  
+     transcriptModel = new Transcript(db);  
+   })();  
+   ```  
+   
+### Modifying the Transcript Handling Logic  
+   
+Instead of appending transcripts to `sample.txt`, you will store them in MongoDB.  
+   
+#### Updated `connectToMediaWebSocket` Function:  
+   
+```javascript  
+// Inside the mediaWs.on('message') handler  
+   
+mediaWs.on('message', async (data) => {  
+  try {  
+    const msg = JSON.parse(data.toString());  
+  
+    // Handle incoming transcript data  
+    if (msg.msg_type === 17 && msg.content && msg.content.data) {  
+      let transcript = msg.content.data;  
+  
+      // Translate the transcript to Spanish  
+      try {  
+        let translated = await translate(transcript, { to: 'es' });  
+        console.log('Translated text:', translated);  
+  
+        // Create a transcript document  
+        const transcriptDocument = {  
+          meeting_uuid: meetingUuid,  
+          timestamp: new Date(msg.content.timestamp / 1000), // Convert timestamp to Date  
+          user_id: msg.content.user_id,  
+          user_name: msg.content.user_name || 'Unknown',  
+          original_text: transcript,  
+          translated_text: translated,  
+          language: msg.content.language,  
+        };  
+  
+        // Save the transcript to MongoDB  
+        const insertedId = await transcriptModel.insert(transcriptDocument);  
+        console.log('Inserted transcript with ID:', insertedId);  
+      } catch (error) {  
+        console.error('Translation or MongoDB error:', error);  
+      }  
+    }  
+  
+    // ... rest of your code  
+  } catch (err) {  
+    console.log('Error parsing message:', err);  
+  }  
+});  
+```  
+   
+#### Updating the `/home` Route:  
+   
+Modify your `/home` route to fetch transcripts from MongoDB instead of reading from `sample.txt`.  
+   
+```javascript  
+app.get('/home', async (req, res) => {  
+  console.log('Accessing home page');  
+  
+  // Generate nonce  
+  const nonce = crypto.randomBytes(16).toString('base64');  
+  
+  // Set CSP with nonce  
+  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self' 'nonce-${nonce}'`);  
+  
+  // Fetch initial transcripts  
+  const transcripts = await transcriptModel.findAll();  
+  
+  res.send(`  
+    <html>  
+      <head>  
+        <title>Zoom App Home</title>  
+        <style>  
+          #transcript-text {  
+            white-space: pre-wrap;  
+          }  
+        </style>  
+      </head>  
+      <body>  
+        <h1>Welcome to the Zoom App Home Page</h1>  
+        <p>This is the home page for your Zoom app.</p>  
+        <h2>Real-Time Transcript:</h2>  
+        <div id="transcript-text">Loading...</div>  
+        <script nonce="${nonce}">  
+          async function updateTranscriptText() {  
+            try {  
+              const response = await fetch('/transcripts');  
+              const data = await response.json();  
+              const transcriptDiv = document.getElementById('transcript-text');  
+              transcriptDiv.innerHTML = '';  
+              data.forEach(item => {  
+                const p = document.createElement('p');  
+                p.textContent = \`[\${new Date(item.timestamp).toLocaleTimeString()}] \${item.user_name}: \${item.translated_text}\`;  
+                transcriptDiv.appendChild(p);  
+              });  
+            } catch (error) {  
+              console.error('Error fetching transcripts:', error);  
+            }  
+          }  
+  
+          // Initial load  
+          updateTranscriptText();  
+  
+          // Poll every 5 seconds  
+          setInterval(updateTranscriptText, 5000);  
+        </script>  
+      </body>  
+    </html>  
+  `);  
+});  
+```  
+   
+#### New `/transcripts` Route:  
+   
+Create a new route to serve transcripts from MongoDB.  
+   
+```javascript  
+app.get('/transcripts', async (req, res) => {  
+  try {  
+    const transcripts = await transcriptModel.findAll();  
+    res.json(transcripts);  
+  } catch (error) {  
+    console.error('Error fetching transcripts:', error);  
+    res.status(500).send('Internal Server Error');  
+  }  
+});  
+```  
+   
+### Working with MongoDB Aggregations  
+   
+MongoDB's aggregation framework allows you to perform complex data processing pipelines directly within the database.  
+   
+#### Example: Fetch Transcripts by User  
+   
+```javascript  
+// In Transcript.js model  
+   
+async findByUser(userId) {  
+  return await this.collection.find({ user_id: userId }).toArray();  
+}  
+```  
+   
+#### Example: Aggregation Pipeline for Word Count  
+   
+```javascript  
+async getWordCount() {  
+  const pipeline = [  
+    {  
+      $group: {  
+        _id: null,  
+        totalWords: {  
+          $sum: {  
+            $size: { $split: ["$translated_text", " "] }  
+          }  
+        }  
+      }  
+    }  
+  ];  
+  const result = await this.collection.aggregate(pipeline).toArray();  
+  return result[0]?.totalWords || 0;  
+}  
+```  
+   
+### Conclusion  
+   
+By integrating MongoDB into your application, you leverage a powerful and flexible database that is well-suited for handling real-time transcript data. The document model aligns with the structure of the data you're working with, and MongoDB's features enable efficient querying and aggregation, which is invaluable for analytics and reporting.  
+   
+### Additional Considerations  
+   
+- **Indexing:** To optimize query performance, create indexes on fields that are frequently queried, such as `meeting_uuid` and `user_id`.  
+  
+  ```javascript  
+  // Ensure indexes at application startup  
+  
+  (async () => {  
+    await transcriptModel.collection.createIndex({ meeting_uuid: 1 });  
+    await transcriptModel.collection.createIndex({ user_id: 1 });  
+  })();  
+  ```  
+   
+- **Security:** When connecting to MongoDB, especially in production environments, ensure that you are using secure connections (SSL/TLS), and handle authentication credentials securely.  
+   
+- **Scalability:** MongoDB is designed to scale horizontally. As your application grows, you can distribute your data across multiple servers using sharding.  
+   
+- **Deployment:** If you're using a cloud provider like MongoDB Atlas, you benefit from automated backups, scalability features, and managed services.  
+   
+### Environment Variable Updates  
+   
+Add the MongoDB URI to your `.env` file:  
+   
+```  
+MONGODB_URI=mongodb://localhost:27017  
+```  
+   
+Replace `localhost:27017` with your actual MongoDB connection string if you're using a remote database or cloud service.  
+   
+### Updated Dependencies  
+   
+Ensure all required npm packages are installed:  
+   
+```bash  
+npm install mongodb  
+```  
+   
+### Testing the Integration  
+   
+1. **Start the Application:**  
+  
+   ```bash  
+   npm start  
+   ```  
+   
+2. **Initiate a Zoom Meeting:**  
+  
+   Follow the same steps as before to start a Zoom meeting with live transcription enabled.  
+   
+3. **View Real-Time Transcripts:**  
+  
+   Navigate to `http://localhost:3000/home` and observe the transcripts being updated in real-time from MongoDB.  
+   
+4. **Verify Data in MongoDB:**  
+  
+   Use MongoDB's command-line tools or GUI clients like **MongoDB Compass** to inspect the `transcripts` collection and verify that data is being stored correctly.  
+   
+### Troubleshooting  
+   
+- **Connection Issues:** Ensure that the MongoDB server is running and accessible from your application. Check firewall settings and network configurations.  
+   
+- **Authentication Errors:** If using authentication, verify that the username and password in your `MONGODB_URI` are correct.  
+   
+- **Performance Tuning:** Monitor the performance of your database and application. Consider adding more indexes or adjusting your data schema to optimize queries.  
+   
+### Scaling Further with MongoDB  
+   
+As your application requirements grow, you can leverage advanced features of MongoDB:  
+   
+- **Change Streams:** Use MongoDB Change Streams to get real-time notifications of data changes, which is useful for pushing updates to clients via WebSockets.  
+   
+- **Text Search:** Implement full-text search on transcripts for advanced querying capabilities.  
+   
+- **Data Analytics:** Use aggregation pipelines to generate reports, such as the most active participants, common phrases, or sentiment analysis.  
+   
+By integrating MongoDB, your application becomes more robust, scalable, and ready for production-grade deployment.  
+   
+--- 
