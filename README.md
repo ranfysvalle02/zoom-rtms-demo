@@ -1,6 +1,6 @@
 # zoom-rtms-demo
 
-![](zoom-demo.png)
+![](demo-2.png)
 
 ---
 
